@@ -1,0 +1,281 @@
+{
+  "name": "ahmad/linkedin-post-creator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "linkedin-post-trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        -380
+      ],
+      "id": "70879daa-5e0b-4822-b95c-6391c8ea4a40",
+      "name": "Webhook",
+      "webhookId": "5656c26b-bfd1-4bb4-87c9-e8b3b7458bcc"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3352,
+        -480
+      ],
+      "id": "4951cb78-cc73-4b47-a7f0-c19227ac6307",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=\nWrite a high-performing LinkedIn post for [your target audience – e.g., startup founders, software engineers, marketing managers] that includes:\n\nA strong hook in the first 2 lines\n\nA short personal or professional story related to [topic]\n\n1–2 valuable lessons or tips\n\nA question or CTA at the end to drive engagement\n\nWritten in a tone that is [professional/friendly/inspiring]\n\nTopic: [Insert your topic — e.g., bootstrapping a startup, overcoming imposter syndrome, scaling a SaaS product]\nLength: Around 150–250 words\nFormat: Use short paragraphs and line breaks for readability \n\nadd proper hash-tags\n\nReference URL: {{ $('Webhook').item.json.body.url }}\n~~~~~~~~~~ BLOG CONTENT START ~~~~~~~~~\n{{ $('Webhook').item.json.body.content }}\n~~~~~~~~~~ BLOG CONTENT END ~~~~~~~~~",
+              "role": "system"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2380,
+        -480
+      ],
+      "id": "bf590043-4f3b-4325-95ce-d8e0ad8656c1",
+      "name": "Post Content generator",
+      "credentials": {
+        "openAiApi": {
+          "id": "enUYIrZNCZN8O6j7",
+          "name": "Restat OpenAi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Read the following LinkedIn post and suggest 3 high-engagement, scroll-stopping titles that:\n\nReflect the main story or lesson of the post\n\nSpark curiosity without being clickbait\n\nAre under 12 words\n\nUse a tone that matches the post (e.g., professional, personal, motivating)\n\nHere is the post content:\n\n {{ $json.message.content }}",
+              "role": "system"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2756,
+        -480
+      ],
+      "id": "c74ff76d-b770-4ef1-bce7-eef1ba9eb482",
+      "name": "Post title generator",
+      "credentials": {
+        "openAiApi": {
+          "id": "enUYIrZNCZN8O6j7",
+          "name": "Restat OpenAi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const titles = $input\n  .first()\n  .json.message.content.split(\"\\n\")\n  .map((i) => i.replace(/^\\s*\\d+\\.\\s*/, \"\"));\n\nreturn { titles: titles, content: $('Post Content generator').first().json.message.content };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3132,
+        -480
+      ],
+      "id": "ecb6cb10-5335-4ce4-ae7d-5fe5825619ad",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "person": "yB8Em8AsQ-",
+        "text": "={{ $json.body.post }}",
+        "shareMediaCategory": "ARTICLE",
+        "additionalFields": {
+          "originalUrl": "={{ $json.body.url }}",
+          "title": "={{ $json.body.selectedTitle }}"
+        }
+      },
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        2458,
+        -280
+      ],
+      "id": "bef93f60-17a4-42f1-89e9-71c87ad1d7c6",
+      "name": "LinkedIn",
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "tDwwZu2vW0p08JEi",
+          "name": "LinkedIn account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"content\": \"value\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2834,
+        -280
+      ],
+      "id": "51abce04-fd77-4c2e-8350-acf039be90dc",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cf27602e-123d-4011-bed2-1f376a5ead5e",
+              "leftValue": "={{ $json.body.category }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        -380
+      ],
+      "id": "7777c10d-a9b4-461d-8958-715db8fc4214",
+      "name": "If"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "Post Content generator": {
+      "main": [
+        [
+          {
+            "node": "Post title generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post title generator": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Post Content generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "242e0d40-35e3-475a-ac21-cc4ad81a409a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7083942211997944daa476193e43fda89d493f0a0fca8e52787b86777a622b71"
+  },
+  "id": "Zf7L5FXOx0MDMfF1",
+  "tags": []
+}
