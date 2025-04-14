@@ -1,4 +1,4 @@
-import { useEffect, useState, ChangeEvent, FormEvent } from 'react';
+import { useEffect, useState, ChangeEvent, FormEvent, useRef } from 'react';
 import {
   AlertCircle,
   Check,
@@ -9,10 +9,13 @@ import {
   ChevronDown,
   Edit3,
   Globe,
+  Image as ImageIcon,
+  File,
+  Paperclip,
 } from 'lucide-react';
-import axios from 'axios'; // Ensure axios is imported
+import axios from 'axios';
 
-const URL = 'https://n8n.megatourn.com/webhook/linkedin-post-trigger';
+const URL = 'https://n8n.megatourn.com/webhook-test/linkedin-post-trigger';
 
 const ContentUploader = () => {
   // State management
@@ -32,11 +35,58 @@ const ContentUploader = () => {
   const [showPreview, setShowPreview] = useState<boolean>(false);
   const [characterCount, setCharacterCount] = useState<number>(0);
 
+  // New state for file upload functionality
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [attachmentName, setAttachmentName] = useState<string>('');
+  const [attachmentForUpload, setAttachmentForUpload] = useState<File | null>(
+    null
+  );
+
+  // File input ref for programmatic access
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Handle content change and update character count
   const handleContentChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setContent(newContent);
     setCharacterCount(newContent.length);
+  };
+
+  // Handle file selection
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) return;
+
+    setSelectedFile(file);
+    setAttachmentName(file.name);
+
+    // If file is an image, create a preview
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPreviewImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // Not an image, clear the preview
+      setPreviewImage(null);
+    }
+  };
+
+  // Programmatically trigger file input click
+  const triggerFileUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  // Remove the selected file
+  const removeFile = () => {
+    setSelectedFile(null);
+    setPreviewImage(null);
+    setAttachmentName('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   // Handle form submission
@@ -58,20 +108,43 @@ const ContentUploader = () => {
     try {
       setIsLoading(true);
 
-      const response = await axios.post(
-        URL,
-        {
-          category: 0, // tell that it's a content creation body
-          url,
-          content,
-        },
-        {
-          headers: {
-            'Content-type': 'application/json; charset=UTF-8',
-          },
-        }
-      );
+      // Create form data if file is selected
+      const formData = new FormData();
+      formData.append('category', '0'); // content creation body
+      formData.append('url', url);
+      formData.append('content', content);
+
+      if (selectedFile) {
+        formData.append('attachment', selectedFile);
+      }
+
+      // Make API call (using FormData if file is selected)
+      const response = selectedFile
+        ? await axios.post(URL, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          })
+        : await axios.post(
+            URL,
+            {
+              category: 0,
+              url,
+              content,
+            },
+            {
+              headers: {
+                'Content-type': 'application/json; charset=UTF-8',
+              },
+            }
+          );
+
       const { data } = response;
+
+      // If file was included, save it for later upload
+      if (selectedFile) {
+        setAttachmentForUpload(selectedFile);
+      }
 
       setTitles(data.titles);
       setPreviewText(data.content);
@@ -96,20 +169,24 @@ const ContentUploader = () => {
       setIsUploading(true);
       setErrorMessage('');
 
-      await axios.post(
-        URL,
-        {
-          category: 1, // tell that it's a upload content to linkedin
-          post: previewText,
-          url,
-          selectedTitle,
+      // Create FormData for the upload
+      const formData = new FormData();
+      formData.append('category', '1'); // upload content to LinkedIn
+      formData.append('post', previewText);
+      formData.append('url', url);
+      formData.append('selectedTitle', selectedTitle);
+
+      // Include the file if it exists
+      if (attachmentForUpload) {
+        formData.append('attachment', attachmentForUpload);
+      }
+
+      // Send the request with FormData
+      await axios.post(URL, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
         },
-        {
-          headers: {
-            'Content-type': 'application/json; charset=UTF-8',
-          },
-        }
-      );
+      });
 
       setSuccessMessage('Content uploaded successfully to LinkedIn!');
 
@@ -121,6 +198,13 @@ const ContentUploader = () => {
         setPreviewText('');
         setSelectedTitle('');
         setSuccessMessage('');
+        setSelectedFile(null);
+        setPreviewImage(null);
+        setAttachmentName('');
+        setAttachmentForUpload(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       }, 2000);
     } catch (error) {
       setErrorMessage('Failed to upload. Please try again.');
@@ -166,6 +250,12 @@ const ContentUploader = () => {
     setContent('');
     setErrorMessage('');
     setCharacterCount(0);
+    setSelectedFile(null);
+    setPreviewImage(null);
+    setAttachmentName('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   // Listen for ESC key to close dialog
@@ -292,6 +382,90 @@ const ContentUploader = () => {
             </div>
           </div>
 
+          {/* File upload section - NEW */}
+          <div className='space-y-2'>
+            <label className='text-sm font-medium text-gray-700 flex items-center'>
+              <Paperclip className='h-4 w-4 mr-2 text-gray-500' />
+              Attachment (Optional)
+            </label>
+
+            <input
+              type='file'
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              className='hidden'
+              accept='image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx'
+            />
+
+            {!selectedFile ? (
+              <div
+                onClick={triggerFileUpload}
+                className='border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition-colors'
+              >
+                <Upload className='h-8 w-8 text-gray-400 mb-2' />
+                <p className='text-sm text-gray-500 text-center'>
+                  Click to upload a file or image
+                  <br />
+                  <span className='text-xs'>
+                    Supported formats: Images, PDF, Office documents
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <div className='border border-gray-200 rounded-lg p-4 bg-gray-50'>
+                <div className='flex items-center justify-between'>
+                  <div className='flex items-center'>
+                    {previewImage ? (
+                      <div className='h-12 w-12 rounded overflow-hidden bg-gray-100 mr-3 flex-shrink-0'>
+                        <img
+                          src={previewImage}
+                          alt='Preview'
+                          className='h-full w-full object-cover'
+                        />
+                      </div>
+                    ) : (
+                      <div className='h-12 w-12 rounded bg-blue-100 mr-3 flex-shrink-0 flex items-center justify-center'>
+                        <File className='h-6 w-6 text-blue-600' />
+                      </div>
+                    )}
+                    <div>
+                      <p className='text-sm font-medium text-gray-700 truncate max-w-xs'>
+                        {attachmentName}
+                      </p>
+                      <p className='text-xs text-gray-500'>
+                        {selectedFile.type.startsWith('image/')
+                          ? 'Image'
+                          : 'Document'}{' '}
+                        • {(selectedFile.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type='button'
+                    onClick={removeFile}
+                    className='text-gray-400 hover:text-red-500 transition-colors'
+                  >
+                    <X className='h-5 w-5' />
+                  </button>
+                </div>
+
+                {/* Image preview section if it's an image */}
+                {previewImage && (
+                  <div className='mt-3 pt-3 border-t border-gray-200'>
+                    <p className='text-xs text-gray-500 mb-2'>Preview:</p>
+                    <div className='rounded-lg overflow-hidden bg-white border border-gray-200'>
+                      <img
+                        src={previewImage}
+                        alt='Preview'
+                        className='max-h-40 mx-auto object-contain'
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Buttons */}
           <div className='flex flex-col sm:flex-row gap-3 pt-2'>
             <button
@@ -414,6 +588,26 @@ const ContentUploader = () => {
                 />
               )}
 
+              {/* Attachment preview in dialog - NEW */}
+              {previewImage && (
+                <div className='mt-4'>
+                  <div className='flex justify-between items-center mb-2'>
+                    <label className='block text-sm font-medium text-gray-700 flex items-center'>
+                      <ImageIcon className='h-4 w-4 mr-2 text-gray-500' />
+                      Attachment Preview
+                    </label>
+                  </div>
+                  <div className='border border-gray-300 rounded-lg overflow-hidden bg-gray-50 p-2'>
+                    <img
+                      src={previewImage}
+                      alt='Attachment Preview'
+                      className='max-h-60 mx-auto object-contain rounded'
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Status messages */}
               {successMessage && (
                 <div className='mt-4 bg-green-50 border-l-4 border-green-500 p-4 rounded-lg flex items-start animate-fadeIn'>
                   <Check className='text-green-500 mr-3 flex-shrink-0 h-5 w-5 mt-0.5' />
