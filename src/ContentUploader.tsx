@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 
-const URL = 'https://n8n.megatourn.com/webhook-test/linkedin-post-trigger';
+const URL = 'https://n8n.megatourn.com/webhook/linkedin-post-trigger';
 
 const ContentUploader = () => {
   // State management

@@ -1,5 +1,4 @@
 {
-  "name": "ahmad/linkedin-post-creator",
   "nodes": [
     {
       "parameters": {
@@ -42,7 +41,7 @@
         "messages": {
           "values": [
             {
-              "content": "=\nWrite a high-performing LinkedIn post for [your target audience – e.g., startup founders, software engineers, marketing managers] that includes:\n\nA strong hook in the first 2 lines\n\nA short personal or professional story related to [topic]\n\n1–2 valuable lessons or tips\n\nA question or CTA at the end to drive engagement\n\nWritten in a tone that is [professional/friendly/inspiring]\n\nTopic: [Insert your topic — e.g., bootstrapping a startup, overcoming imposter syndrome, scaling a SaaS product]\nLength: Around 150–250 words\nFormat: Use short paragraphs and line breaks for readability \n\nadd proper hash-tags\n\nReference URL: {{ $('Webhook').item.json.body.url }}\n~~~~~~~~~~ BLOG CONTENT START ~~~~~~~~~\n{{ $('Webhook').item.json.body.content }}\n~~~~~~~~~~ BLOG CONTENT END ~~~~~~~~~",
+              "content": "=Write a LinkedIn post that summarizes the key insights from the following blog post content. The purpose of the post is to increase engagement and drive traffic to the full blog via a compelling Call-To-Action (CTA).\n\nThe post must:\n\nBe SEO-optimized for LinkedIn visibility\n\nInclude relevant and trending hashtags to increase reach at the end of the post\n\nEnd with a clear CTA encouraging readers to click the blog link\n\nReference the original blog URL in the content naturally\n\nAdd bullets or emojies for better eye engagement if needed\n\nBlog URL: {{ $('Webhook').item.json.body.url }}\n~~~~~~~~~~ BLOG CONTENT START ~~~~~~~~~\n{{ $('Webhook').item.json.body.content }}  \n~~~~~~~~~~ BLOG CONTENT END ~~~~~~~~~",
               "role": "system"
             }
           ]
@@ -112,18 +111,19 @@
     },
     {
       "parameters": {
-        "person": "yB8Em8AsQ-",
+        "person": "BvWnd0keWT",
         "text": "={{ $json.body.post }}",
-        "shareMediaCategory": "ARTICLE",
+        "shareMediaCategory": "IMAGE",
+        "binaryPropertyName": "attachment",
         "additionalFields": {
-          "originalUrl": "={{ $json.body.url }}",
-          "title": "={{ $json.body.selectedTitle }}"
+          "title": "={{ $json.body.selectedTitle }}",
+          "visibility": "PUBLIC"
         }
       },
       "type": "n8n-nodes-base.linkedIn",
       "typeVersion": 1,
       "position": [
-        2458,
+        2460,
         -280
       ],
       "id": "bef93f60-17a4-42f1-89e9-71c87ad1d7c6",
@@ -186,7 +186,6 @@
       "name": "If"
     }
   ],
-  "pinData": {},
   "connections": {
     "Webhook": {
       "main": [
@@ -267,15 +266,9 @@
       ]
     }
   },
-  "active": true,
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "versionId": "242e0d40-35e3-475a-ac21-cc4ad81a409a",
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "7083942211997944daa476193e43fda89d493f0a0fca8e52787b86777a622b71"
-  },
-  "id": "Zf7L5FXOx0MDMfF1",
-  "tags": []
+  }
 }
