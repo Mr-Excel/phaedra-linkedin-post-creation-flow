@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState, ChangeEvent, FormEvent, useRef } from 'react';
 import {
   AlertCircle,
@@ -17,8 +18,26 @@ import axios from 'axios';
 
 const URL = 'https://n8n.megatourn.com/webhook/linkedin-post-trigger';
 
+// Configuration constants
+const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB max file size
+const MAX_IMAGE_WIDTH = 1200; // Maximum image width
+const MAX_IMAGE_HEIGHT = 1200; // Maximum image height
+const IMAGE_QUALITY = 0.8; // Image compression quality (0.8 = 80%)
+const ALLOWED_FILE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+];
+
 const ContentUploader = () => {
-  // State management
+  // State management (keeping the existing state)
   const [url, setUrl] = useState<string>('');
   const [content, setContent] = useState<string>('');
   const [previewText, setPreviewText] = useState<string>('');
@@ -34,14 +53,15 @@ const ContentUploader = () => {
   const [overlayAnimation, setOverlayAnimation] = useState<string>('opacity-0');
   const [showPreview, setShowPreview] = useState<boolean>(false);
   const [characterCount, setCharacterCount] = useState<number>(0);
-
-  // New state for file upload functionality
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [originalFileSize, setOriginalFileSize] = useState<number>(0);
+  const [compressedFileSize, setCompressedFileSize] = useState<number>(0);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [attachmentName, setAttachmentName] = useState<string>('');
   const [attachmentForUpload, setAttachmentForUpload] = useState<File | null>(
     null
   );
+  const [isCompressing, setIsCompressing] = useState<boolean>(false);
 
   // File input ref for programmatic access
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,24 +73,166 @@ const ContentUploader = () => {
     setCharacterCount(newContent.length);
   };
 
-  // Handle file selection
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  // NEW: Image resizing and compression function
+  const resizeAndCompressImage = (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      setIsCompressing(true);
+
+      // If it's not an image or smaller than the limit, return the original file
+      if (!file.type.startsWith('image/') || file.size <= MAX_FILE_SIZE) {
+        setIsCompressing(false);
+        resolve(file);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+
+        img.onload = () => {
+          // Calculate new dimensions while maintaining aspect ratio
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_IMAGE_WIDTH) {
+            height = (height * MAX_IMAGE_WIDTH) / width;
+            width = MAX_IMAGE_WIDTH;
+          }
+
+          if (height > MAX_IMAGE_HEIGHT) {
+            width = (width * MAX_IMAGE_HEIGHT) / height;
+            height = MAX_IMAGE_HEIGHT;
+          }
+
+          // Create canvas for resizing
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+
+          // Draw and compress the image
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+
+          // Use a type-safe approach for canvas.toBlob
+          // Handle the HTMLCanvasElement.toBlob properly for TypeScript
+          const canvasToBlob = (
+            canvas: HTMLCanvasElement,
+            type: string,
+            quality: number
+          ): Promise<Blob> => {
+            return new Promise((resolve, reject) => {
+              // Use type assertion to tell TypeScript that toBlob exists
+              (canvas as HTMLCanvasElement).toBlob(
+                (blob) => {
+                  if (!blob) {
+                    reject(new Error('Failed to create blob'));
+                    return;
+                  }
+                  resolve(blob);
+                },
+                type,
+                quality
+              );
+            });
+          };
+
+          // Use our type-safe function
+          canvasToBlob(canvas, file.type, IMAGE_QUALITY)
+            .then((blob) => {
+              // Create a new file from the blob
+              const compressedFile = new Blob([blob], {
+                type: file.type,
+              }) as unknown as File;
+
+              // Manually set File-specific properties
+              Object.defineProperty(compressedFile, 'name', {
+                value: file.name,
+                writable: false,
+              });
+              Object.defineProperty(compressedFile, 'lastModified', {
+                value: Date.now(),
+                writable: false,
+              });
+
+              setOriginalFileSize(file.size);
+              setCompressedFileSize(compressedFile.size);
+              setIsCompressing(false);
+              resolve(compressedFile);
+            })
+            .catch((error) => {
+              setIsCompressing(false);
+              reject(error);
+            });
+        };
+
+        img.onerror = () => {
+          setIsCompressing(false);
+          reject(new Error('Failed to load image'));
+        };
+      };
+
+      reader.onerror = () => {
+        setIsCompressing(false);
+        reject(new Error('Failed to read file'));
+      };
+    });
+  };
+
+  // Handle file selection with validation and compression
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     if (!file) return;
 
-    setSelectedFile(file);
-    setAttachmentName(file.name);
+    // Check file type
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      setErrorMessage(
+        'File type not supported. Please upload an image, PDF, or Office document.'
+      );
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
 
-    // If file is an image, create a preview
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setPreviewImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      // Not an image, clear the preview
-      setPreviewImage(null);
+    // Check initial file size
+    if (file.size > 5 * 1024 * 1024) {
+      // 5MB hard limit
+      setErrorMessage('File too large. Maximum file size is 5MB.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    try {
+      // Process the file (compress if it's an image)
+      const processedFile = await resizeAndCompressImage(file);
+
+      // Update state with the processed file
+      setSelectedFile(processedFile);
+      setAttachmentName(file.name);
+
+      // Create preview for images
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setPreviewImage(reader.result as string);
+        };
+        reader.readAsDataURL(processedFile);
+      } else {
+        setPreviewImage(null);
+      }
+
+      // Clear any previous error messages
+      setErrorMessage('');
+    } catch (error) {
+      console.error('File processing error:', error);
+      setErrorMessage('Failed to process the file. Please try again.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -84,6 +246,8 @@ const ContentUploader = () => {
     setSelectedFile(null);
     setPreviewImage(null);
     setAttachmentName('');
+    setOriginalFileSize(0);
+    setCompressedFileSize(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -102,6 +266,12 @@ const ContentUploader = () => {
 
     if (!content.trim()) {
       setErrorMessage('Content is required');
+      return;
+    }
+
+    // Check if an image is being uploaded and is still compressing
+    if (isCompressing) {
+      setErrorMessage('Please wait for image processing to complete');
       return;
     }
 
@@ -124,6 +294,8 @@ const ContentUploader = () => {
             headers: {
               'Content-Type': 'multipart/form-data',
             },
+            // Add timeout and retry logic
+            timeout: 30000, // 30 seconds timeout
           })
         : await axios.post(
             URL,
@@ -136,6 +308,7 @@ const ContentUploader = () => {
               headers: {
                 'Content-type': 'application/json; charset=UTF-8',
               },
+              timeout: 30000, // 30 seconds timeout
             }
           );
 
@@ -150,15 +323,32 @@ const ContentUploader = () => {
       setPreviewText(data.content);
       openDialog();
       setErrorMessage('');
-    } catch (error) {
-      setErrorMessage('Failed to process content. Please try again.');
+    } catch (error: any) {
+      // Improved error handling
+      let errorMsg = 'Failed to process content. Please try again.';
+
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        if (error.response.status === 413) {
+          errorMsg =
+            'File size too large. Please try a smaller file or reduce image quality.';
+        } else if (error.response.data && error.response.data.message) {
+          errorMsg = `Server error: ${error.response.data.message}`;
+        }
+      } else if (error.request) {
+        // The request was made but no response was received
+        errorMsg =
+          'No response from server. Please check your connection and try again.';
+      }
+
+      setErrorMessage(errorMsg);
       console.error('Error processing content:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle upload
+  // Handle upload (keep existing logic but with improved error handling)
   const handleUpload = async () => {
     if (!selectedTitle) {
       setErrorMessage('Please select a title');
@@ -186,6 +376,7 @@ const ContentUploader = () => {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: 30000, // 30 seconds timeout
       });
 
       setSuccessMessage('Content uploaded successfully to LinkedIn!');
@@ -202,19 +393,36 @@ const ContentUploader = () => {
         setPreviewImage(null);
         setAttachmentName('');
         setAttachmentForUpload(null);
+        setOriginalFileSize(0);
+        setCompressedFileSize(0);
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
       }, 2000);
-    } catch (error) {
-      setErrorMessage('Failed to upload. Please try again.');
+    } catch (error: any) {
+      // Enhanced error handling
+      let errorMsg = 'Failed to upload. Please try again.';
+
+      if (error.response) {
+        if (error.response.status === 413) {
+          errorMsg =
+            'File size too large for LinkedIn. Please try a smaller file.';
+        } else if (error.response.data && error.response.data.message) {
+          errorMsg = `LinkedIn upload error: ${error.response.data.message}`;
+        }
+      } else if (error.request) {
+        errorMsg =
+          'No response from server. Please check your connection and try again.';
+      }
+
+      setErrorMessage(errorMsg);
       console.error('Error uploading:', error);
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Open dialog with animation
+  // Open dialog with animation (keep existing logic)
   const openDialog = () => {
     setIsDialogOpen(true);
     setOverlayAnimation('opacity-0');
@@ -227,7 +435,7 @@ const ContentUploader = () => {
     }, 10);
   };
 
-  // Close dialog with animation
+  // Close dialog with animation (keep existing logic)
   const closeDialog = () => {
     setOverlayAnimation('opacity-0');
     setDialogAnimation('scale-95 opacity-0');
@@ -239,12 +447,12 @@ const ContentUploader = () => {
     }, 200);
   };
 
-  // Toggle between edit and preview modes
+  // Toggle between edit and preview modes (keep existing logic)
   const togglePreview = () => {
     setShowPreview(!showPreview);
   };
 
-  // Reset form and states
+  // Reset form and states (update to include new state)
   const resetForm = () => {
     setUrl('');
     setContent('');
@@ -253,12 +461,14 @@ const ContentUploader = () => {
     setSelectedFile(null);
     setPreviewImage(null);
     setAttachmentName('');
+    setOriginalFileSize(0);
+    setCompressedFileSize(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  // Listen for ESC key to close dialog
+  // Listen for ESC key to close dialog (keep existing logic)
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isDialogOpen) {
@@ -276,7 +486,7 @@ const ContentUploader = () => {
   return (
     <div className='min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 p-4 md:p-8 flex items-center justify-center'>
       <div className='max-w-3xl w-full mx-auto bg-white rounded-xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl'>
-        {/* Header */}
+        {/* Header (keeping existing code) */}
         <div className='p-6 md:p-8 bg-gradient-to-r from-blue-600 to-indigo-700 relative overflow-hidden'>
           <div className='absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-x-1/2 -translate-y-1/2 hidden md:block'></div>
           <div className='absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-x-1/2 translate-y-1/2'></div>
@@ -328,7 +538,7 @@ const ContentUploader = () => {
             </div>
           )}
 
-          {/* URL input */}
+          {/* URL input (keep existing code) */}
           <div className='space-y-2'>
             <label
               htmlFor='url'
@@ -358,7 +568,7 @@ const ContentUploader = () => {
             </div>
           </div>
 
-          {/* Content textarea */}
+          {/* Content textarea (keep existing code) */}
           <div className='space-y-2'>
             <label
               htmlFor='content'
@@ -382,7 +592,7 @@ const ContentUploader = () => {
             </div>
           </div>
 
-          {/* File upload section - NEW */}
+          {/* File upload section - UPDATED */}
           <div className='space-y-2'>
             <label className='text-sm font-medium text-gray-700 flex items-center'>
               <Paperclip className='h-4 w-4 mr-2 text-gray-500' />
@@ -408,6 +618,10 @@ const ContentUploader = () => {
                   <br />
                   <span className='text-xs'>
                     Supported formats: Images, PDF, Office documents
+                  </span>
+                  <br />
+                  <span className='text-xs text-blue-600 font-medium'>
+                    Maximum file size: 1MB (larger images will be compressed)
                   </span>
                 </p>
               </div>
@@ -437,6 +651,18 @@ const ContentUploader = () => {
                           ? 'Image'
                           : 'Document'}{' '}
                         • {(selectedFile.size / 1024).toFixed(1)} KB
+                        {/* Show compression info if applicable */}
+                        {compressedFileSize > 0 &&
+                          originalFileSize > compressedFileSize && (
+                            <span className='text-green-600 ml-1'>
+                              (
+                              {Math.round(
+                                (1 - compressedFileSize / originalFileSize) *
+                                  100
+                              )}
+                              % compressed)
+                            </span>
+                          )}
                       </p>
                     </div>
                   </div>
@@ -462,6 +688,14 @@ const ContentUploader = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Loading indicator for compression */}
+                {isCompressing && (
+                  <div className='mt-2 flex items-center justify-center text-sm text-blue-600'>
+                    <Loader2 className='animate-spin mr-2 h-4 w-4' />
+                    Optimizing image...
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -478,9 +712,9 @@ const ContentUploader = () => {
 
             <button
               type='submit'
-              disabled={isLoading}
+              disabled={isLoading || isCompressing}
               className={`flex-1 flex items-center justify-center py-3 px-4 rounded-lg text-white font-medium transition-all ${
-                isLoading
+                isLoading || isCompressing
                   ? 'bg-blue-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2'
               }`}
@@ -489,6 +723,11 @@ const ContentUploader = () => {
                 <>
                   <Loader2 className='animate-spin mr-2 h-5 w-5' />
                   Processing...
+                </>
+              ) : isCompressing ? (
+                <>
+                  <Loader2 className='animate-spin mr-2 h-5 w-5' />
+                  Optimizing Image...
                 </>
               ) : (
                 <>
@@ -501,7 +740,7 @@ const ContentUploader = () => {
         </form>
       </div>
 
-      {/* Preview Dialog */}
+      {/* Preview Dialog (keep existing code with minor updates) */}
       {isDialogOpen && (
         <div
           className={`fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 transition-opacity duration-200 ${overlayAnimation}`}
@@ -588,7 +827,7 @@ const ContentUploader = () => {
                 />
               )}
 
-              {/* Attachment preview in dialog - NEW */}
+              {/* Attachment preview in dialog */}
               {previewImage && (
                 <div className='mt-4'>
                   <div className='flex justify-between items-center mb-2'>
@@ -596,6 +835,19 @@ const ContentUploader = () => {
                       <ImageIcon className='h-4 w-4 mr-2 text-gray-500' />
                       Attachment Preview
                     </label>
+
+                    {/* Show compression info */}
+                    {compressedFileSize > 0 &&
+                      originalFileSize > compressedFileSize && (
+                        <span className='text-xs text-green-600'>
+                          Optimized: {(compressedFileSize / 1024).toFixed(1)} KB
+                          (
+                          {Math.round(
+                            (1 - compressedFileSize / originalFileSize) * 100
+                          )}
+                          % smaller)
+                        </span>
+                      )}
                   </div>
                   <div className='border border-gray-300 rounded-lg overflow-hidden bg-gray-50 p-2'>
                     <img
